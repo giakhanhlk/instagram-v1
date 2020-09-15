@@ -1,0 +1,40 @@
+const mongoose = require("mongoose");
+const User = mongoose.model("User");
+const bcrypt = require("bcryptjs");
+
+module.exports = (req, res, next) => {
+	User.aggregate([
+		{
+			$match: {
+				$or: [{ email: req.body.email }, { username: req.body.email }],
+			},
+		},
+		{
+			$project: {
+				password: 1,
+				activated: 1,
+			},
+		},
+	])
+		.then((users) => {
+			if (users.length < 1) {
+				return res.status(400).json({ message: "Email không tồn tại" });
+			} else {
+				bcrypt.compare(req.body.password, users[0].password, (err, result) => {
+					if (result) {
+						if (!users[0].activated) {
+							return res
+								.status(400)
+								.json({ messge: "Tài khoản chưa được kích hoạt" });
+						}
+						return next();
+					}
+					return res.status(400).json({ message: "Sai mật khẩu" });
+				});
+			}
+		})
+		.catch((err) => {
+			console.log(err.message);
+			return res.status(500).json({ message: err.message });
+		});
+};
