@@ -8,4 +8,6 @@ const commentReplySchema = new Schema({
 	createAt: { type: Date, default: Date.now },
 });
 
-module.exports = mongoose.model("CommentReply", commentReplySchema);
+const Reply = mongoose.model("Reply", commentReplySchema);
+
+module.exports = Reply;

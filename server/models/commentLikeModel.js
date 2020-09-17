@@ -5,9 +5,11 @@ const commentLikeSchema = new Schema({
 	comment: { type: Schema.Types.ObjectId, ref: "Comment", required: true },
 	users_likes: [
 		{
-			type: Schema.Types.ObjectId,
-			required: true,
-			ref: "User",
+			author: {
+				type: mongoose.Schema.ObjectId,
+				required: true,
+				ref: "User",
+			},
 		},
 	],
 });

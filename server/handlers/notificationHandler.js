@@ -183,13 +183,13 @@ exports.sendCommentTaggedNotification = (params) => {
 };
 
 exports.sendCommentMentionNotification = (params) => {
-	const { req, removedUserid, user, notification } = params;
+	const { req, removedUserId, user, notification } = params;
 	const io = req.app.get("socketio");
 
 	const { _id, read, type, createdAt, post } = notification;
 	const { profilePicture, username } = user;
 
-	removedUserid.forEach((user) => {
+	removedUserId.forEach((user) => {
 		if (idToString(user._id) !== idToString(req.userData.userId)) {
 			io.sockets.in(user._id).emit("newNotification", {
 				notification: {

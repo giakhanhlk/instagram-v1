@@ -5,7 +5,7 @@ const Jimp = require("jimp");
 const bcrypt = require("bcryptjs");
 const multer = require("multer");
 const jwt = require("jsonwebtoken");
-const uuidv4 = require("uuid");
+const { v4: uuidv4 } = require("uuid");
 
 const User = require("../models/userModel");
 const Following = require("../models/followingModel");
@@ -35,7 +35,7 @@ const checkFileType = (file, cb) => {
 
 const storage = multer.diskStorage({
 	destination: (req, res, cb) => {
-		cb(null, "/images/profile-picture");
+		cb(null, "server/public/images/profile-picture");
 	},
 	filename: (req, file, cb) => {
 		const ext = file.mimetype.split("/")[1];
@@ -390,7 +390,6 @@ exports.loginUser = async (req, res, next) => {
 					return;
 				}
 
-				console.log("pass");
 				return res.status(400).json({ message: "Sai mật khẩu" });
 			}
 		})
@@ -923,7 +922,7 @@ exports.searchUsersByName = (req, res) => {
 
 exports.getFollowings = async (req, res, next) => {
 	try {
-		const users = User.aggregate([
+		const users = await User.aggregate([
 			{ $match: { _id: mongoose.Types.ObjectId(req.userData.userId) } },
 			{
 				$lookup: {
@@ -939,11 +938,11 @@ exports.getFollowings = async (req, res, next) => {
 				},
 			},
 		]);
-
+		console.log("user", users);
 		req.body.followings = users[0].followings;
 		next();
 	} catch (error) {
-		res.status(500).json({ message: err.message });
+		res.status(500).json({ message: error.message });
 	}
 };
 

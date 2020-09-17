@@ -33,7 +33,7 @@ exports.getPostLikes = (req, res, next) => {
 exports.getPostsByHashtag = (req, res, next) => {
 	const schema = Joi.object({
 		initialFetch: Joi.boolean().required(),
-		hashtag: Joi.string().min(1).required(),
+		hashTag: Joi.string().min(1).required(),
 		lastId: Joi.when("initialFetch", {
 			is: false,
 			then: Joi.objectId().required(),

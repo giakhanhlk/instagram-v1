@@ -9,10 +9,10 @@ const linkify = require("linkifyjs");
 const Post = require("../models/postModel");
 const User = require("../models/userModel");
 const Notification = require("../models/notificationModel");
-
-const notificationHandle = require("../handlers/notificationHandler");
 const PostLike = require("../models/postLikeModel");
 const Comment = require("../models/commentModel");
+
+const notificationHandle = require("../handlers/notificationHandler");
 
 require("linkifyjs/plugins/hashtag")(linkify);
 require("linkifyjs/plugins/mention")(linkify);
@@ -170,6 +170,8 @@ exports.createPost = async (req, res) => {
 			const notification = await saveNotify
 				.populate("post", "photo")
 				.execPopulate();
+			console.log("notify", notification);
+			console.log("notify1", notification.toObject());
 			const user = await User.findById(req.userData.userId).select(
 				"profilePicture username"
 			);
@@ -202,7 +204,6 @@ exports.createPost = async (req, res) => {
 
 exports.likePost = async (req, res) => {
 	try {
-		console.log("userId:", req.userData.userId);
 		const document = await PostLike.updateOne(
 			{
 				post: req.body.postId,
@@ -284,8 +285,6 @@ exports.deletePhotoPost = ({ photo }) => {
 
 exports.deletePost = async (req, res) => {
 	try {
-		console.log("postId", req.body.postId);
-		console.log("userId", req.userData.userId);
 		const post = await Post.findOneAndDelete({
 			_id: req.body.postId,
 			author: req.userData.userId,
@@ -296,20 +295,373 @@ exports.deletePost = async (req, res) => {
 
 		this.deletePhotoPost(post);
 
-		const docs = await Comment.deleteMany({
-			post: mongoose.Types.ObjectId(post._id),
+		await Comment.deleteMany({
+			post: post._id,
 		});
-		console.log(docs);
-		const deletePostLike = await PostLike.findOneAndDelete({
-			post: mongoose.Types.ObjectId(post._id),
+
+		await PostLike.findOneAndDelete({
+			post: post._id,
 		});
-		console.log(deletePostLike);
-		const notification = Notification.deleteMany({
-			post: mongoose.Types.ObjectId(post._id),
+
+		await Notification.deleteMany({
+			post: post._id,
 		});
-		console.log(notification);
 		return res.status(200).json({ message: "Đã xóa bài viết", id: post._id });
 	} catch (error) {
 		res.status(400).json({ message: error.message });
+	}
+};
+
+exports.getPosts = async (req, res) => {
+	let query;
+
+	if (req.body.initialFetch) {
+		query = [
+			{
+				$facet: {
+					posts: [
+						{
+							$match: {
+								author: { $in: req.body.followings },
+							},
+						},
+						{ $sort: { createdAt: -1 } },
+						{ $limit: 5 },
+						...postLookup,
+
+						{
+							$project: {
+								photo: 1,
+								createdAt: 1,
+								tags: 1,
+								hashtags: 1,
+								location: 1,
+								likes: {
+									$size: { $arrayElemAt: ["$likes.users_likes", 0] },
+								},
+								comments: {
+									$size: "$comments",
+								},
+								description: 1,
+								"author._id": 1,
+								"author.username": 1,
+								"author.profilePicture": 1,
+							},
+						},
+					],
+					total: [
+						// Filter out documents without a price e.g., _id: 7
+						{
+							$match: {
+								author: { $in: req.body.followings },
+							},
+						},
+						{ $group: { _id: null, count: { $sum: 1 } } },
+					],
+				},
+			},
+		];
+	} else {
+		query = [
+			{
+				$match: {
+					$and: [
+						{
+							_id: {
+								$lt: mongoose.Types.ObjectId(req.body.lastId),
+							},
+							author: { $in: req.body.followings },
+						},
+					],
+				},
+			},
+			{ $sort: { createdAt: -1 } },
+			{ $limit: 5 },
+			...postLookup,
+
+			{
+				$project: {
+					photo: 1,
+					createdAt: 1,
+					tags: 1,
+					hashtags: 1,
+					location: 1,
+					likes: {
+						$size: { $arrayElemAt: ["$likes.users_likes", 0] },
+					},
+					comments: {
+						$size: "$comments",
+					},
+					description: 1,
+					"author._id": 1,
+					"author.username": 1,
+					"author.profilePicture": 1,
+				},
+			},
+		];
+	}
+
+	Post.aggregate(query)
+		.then((data) => {
+			console.log("data", data);
+			if (req.body.initialFetch && !data[0].total.length) {
+				data[0].total.push({ _id: null, count: 0 }); //if user has no posts
+			}
+
+			res.status(200).json({ data });
+		})
+		.catch((err) => {
+			console.log(err.message);
+			res.status(500).json({ message: err.message });
+		});
+};
+
+exports.getPost = async (req, res) => {
+	try {
+		const post = await Post.aggregate([
+			{ $match: { _id: mongoose.Types.ObjectId(req.body.postId) } },
+			...postLookup,
+			{
+				$project: {
+					photo: 1,
+					createAt: 1,
+					tags: 1,
+					location: 1,
+					likes: {
+						$size: { $arrayElemAt: ["$likes.users_likes", 0] },
+					},
+					comments: {
+						$size: "$comments",
+					},
+					description: 1,
+					"author._id": 1,
+					"author.username": 1,
+					"author.profilePicture": 1,
+				},
+			},
+		]);
+
+		if (!post.length) {
+			return res.status(404).json({ message: "Không tìm thấy bài viết" });
+		}
+
+		res.status(200).json({ post });
+	} catch (error) {
+		return res.status(500).json({ message: error.message });
+	}
+};
+
+exports.getPostByHashtag = async (req, res) => {
+	let query;
+
+	if (req.body.initialFetch) {
+		query = [
+			{
+				$facet: {
+					posts: [
+						{
+							$match: {
+								hashTags: req.body.hashTag,
+							},
+						},
+						{ $sort: { createAt: -1 } },
+						{ $limit: 10 },
+						...postLookup,
+						{
+							$project: {
+								photo: 1,
+								createdAt: 1,
+								tags: 1,
+								hashtags: 1,
+								location: 1,
+								likes: {
+									$size: { $arrayElemAt: ["$likes.users_likes", 0] },
+								},
+								comments: {
+									$size: "$comments",
+								},
+								description: 1,
+								"author._id": 1,
+								"author.username": 1,
+								"author.profilePicture": 1,
+							},
+						},
+					],
+					total: [
+						{
+							$match: {
+								hashTags: req.body.hashTag,
+							},
+						},
+						{ $group: { _id: null, count: { $sum: 1 } } },
+					],
+				},
+			},
+		];
+	} else {
+		query = [
+			{
+				$match: {
+					$and: [
+						{
+							_id: {
+								$lt: mongoose.Types.ObjectId(req.body.lastId),
+							},
+							hashtags: req.body.hashtag,
+						},
+					],
+				},
+			},
+			{ $sort: { createdAt: -1 } },
+			{ $limit: 10 },
+			...postLookup,
+
+			{
+				$project: {
+					photo: 1,
+					createdAt: 1,
+					tags: 1,
+					hashtags: 1,
+					location: 1,
+					likes: {
+						$size: { $arrayElemAt: ["$likes.users_likes", 0] },
+					},
+					comments: {
+						$size: "$comments",
+					},
+					description: 1,
+					"author._id": 1,
+					"author.username": 1,
+					"author.profilePicture": 1,
+				},
+			},
+		];
+	}
+
+	try {
+		const data = await Post.aggregate(query);
+		const { posts } = data[0];
+		if (!posts.length) {
+			return res.status(404).json({ message: "Hashtag không tìm thấy" });
+		}
+
+		return res.status(200).json({ data });
+	} catch (error) {
+		return res.status(500).json({ message: error.message });
+	}
+};
+
+exports.getPostsByLocation = async (req, res) => {
+	const [lat, lng] = req.body.coordinates.split(",");
+
+	let query;
+
+	if (req.body.initialFetch) {
+		query = [
+			{
+				$facet: {
+					posts: [
+						{
+							$match: {
+								"location.coordinates": [parseFloat(lat), parseFloat(lng)],
+							},
+						},
+						{ $sort: { createdAt: -1 } },
+						{ $limit: 10 },
+						...postLookup,
+
+						{
+							$project: {
+								photo: 1,
+								createdAt: 1,
+								tags: 1,
+								hashtags: 1,
+								location: 1,
+								likes: {
+									$size: { $arrayElemAt: ["$likes.users_likes", 0] },
+								},
+								comments: {
+									$size: "$comments",
+								},
+								description: 1,
+								"author._id": 1,
+								"author.username": 1,
+								"author.profilePicture": 1,
+							},
+						},
+					],
+					total: [
+						{
+							$match: {
+								"location.coordinates": [parseFloat(lat), parseFloat(lng)],
+							},
+						},
+						{ $group: { _id: null, count: { $sum: 1 } } },
+					],
+				},
+			},
+		];
+	} else {
+		query = [
+			{
+				$match: {
+					$and: [
+						{
+							_id: {
+								$lt: mongoose.Types.ObjectId(req.body.lastId),
+							},
+							"location.coordinates": [parseFloat(lat), parseFloat(lng)],
+						},
+					],
+				},
+			},
+			{ $sort: { createdAt: -1 } },
+			{ $limit: 10 },
+			...postLookup,
+
+			{
+				$project: {
+					photo: 1,
+					createdAt: 1,
+					tags: 1,
+					hashtags: 1,
+					location: 1,
+					likes: {
+						$size: { $arrayElemAt: ["$likes.users_likes", 0] },
+					},
+					comments: {
+						$size: "$comments",
+					},
+					description: 1,
+					"author._id": 1,
+					"author.username": 1,
+					"author.profilePicture": 1,
+				},
+			},
+		];
+	}
+
+	try {
+		const data = await Post.aggregate(query);
+		const { posts } = data[0];
+		if (!posts.length) {
+			return res
+				.status(404)
+				.json({ message: "Không tìm thấy bài viết theo vị trí" });
+		}
+		return res.status(200).json({ data });
+	} catch (error) {
+		return res.status(500).json({ message: error.message });
+	}
+};
+
+exports.getPostLike = async (req, res) => {
+	try {
+		const users = await PostLike.find({ post: req.body.postId })
+			.populate("users_likes.author", "username profilePicture")
+			.select("author");
+		res.status(200).json({ users });
+	} catch (error) {
+		res.status(500).json({ message: error.message });
 	}
 };

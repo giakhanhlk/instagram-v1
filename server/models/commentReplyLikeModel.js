@@ -2,12 +2,14 @@ const mongoose = require("mongoose");
 const Schema = mongoose.Schema;
 
 const commentReplyLikeSchema = new Schema({
-	comment: { type: Schema.Types.ObjectId, ref: "Comment", required: true },
+	comment: { type: Schema.Types.ObjectId, ref: "Reply", required: true },
 	users_likes: [
 		{
-			type: Schema.Types.ObjectId,
-			required: true,
-			ref: "User",
+			author: {
+				type: Schema.Types.ObjectId,
+				required: true,
+				ref: "User",
+			},
 		},
 	],
 });
